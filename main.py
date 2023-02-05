@@ -1,9 +1,14 @@
 import sqlite3
-import tkinter as tk
-from tkinter import messagebox
+from kivy.app import App
+from kivy.uix.gridlayout import GridLayout
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.label import Label
+from kivy.uix.textinput import TextInput
+from kivy.uix.button import Button
+from kivy.uix.popup import Popup
 import datetime
 
-class Tracker:
+class Tracker():
     def __init__(self):
         self.totalCarbs = 0.0
         self.totalKcal = 0
@@ -19,13 +24,13 @@ class Tracker:
 
         self.conn.commit()
 
-    def log_intake(self):
-        self.kcal = self.totalKcal + int(self.kcal_entry.get())
-        self.carbs = self.totalCarbs + float(self.carbs_entry.get())
-        self.proteins = self.totalProteins + float(self.proteins_entry.get())
-        self.totalCarbs = self.carbs
-        self.totalKcal = self.kcal
-        self.totalProteins = self.proteins
+    def log_intake(self, instance):
+        kcal_entry = instance.kcal_entry
+        self.totalKcal = self.totalKcal + int(kcal_entry.text)
+        carbs_entry = instance.carbs_entry
+        self.totalCarbs = self.totalCarbs + float(carbs_entry.text)
+        proteins_entry = instance.proteins_entry
+        self.totalProteins = self.totalProteins + float(proteins_entry.text)
         today = datetime.datetime.now().date().strftime("%Y-%m-%d")
         self.cursor.execute("INSERT INTO tracker VALUES (?, ?, ?, ?)", (today, self.totalCarbs, self.totalKcal, self.totalProteins))
         self.conn.commit()
@@ -35,18 +40,19 @@ class Tracker:
         self.cursor.execute("SELECT * FROM tracker WHERE date=?", (today,))
         result = self.cursor.fetchone()
         if result:
-            self.totalCarbs = result[1]
-            self.totalKcal = result[2]
-            self.totalProteins = result[3]
+            self.totalCarbs += result[1]
+            self.totalKcal += result[2]
+            self.totalProteins += result[3]
 
-    def undo_last_log(self):
+    def undo_last_log(self, instance):
+        today = datetime.datetime.now().date().strftime("%Y-%m-%d")
         self.cursor.execute("DELETE FROM tracker WHERE date=? ORDER BY rowid DESC LIMIT 1", (today,))
         self.conn.commit()
-        self.totalCarbs -= float(self.carbs_entry.get())
-        self.totalKcal -= int(self.kcal_entry.get())
-        self.totalProteins -= float(self.proteins_entry.get())        
+        self.totalCarbs -= float(instance.carbs_entry.text)
+        self.totalKcal -= int(instance.kcal_entry.text)
+        self.totalProteins -= float(instance.proteins_entry.text)            
 
-    def reset_values(self):
+    def reset_values(self, instance):
         today = datetime.datetime.now().date().strftime("%Y-%m-%d")
         self.cursor.execute("DELETE FROM tracker WHERE date=?", (today,))
         self.conn.commit()
@@ -54,42 +60,48 @@ class Tracker:
         self.totalKcal = 0
         self.totalProteins = 0.0
 
-    def show_totals(self):
-        messagebox.showinfo("Total", "Carbs: " + str(self.totalCarbs) + "\nProteins: " + str(self.totalProteins) + "\nKcal: " + str(self.totalKcal))
+    def show_totals(self, instance):
+        content = BoxLayout(orientation='vertical')
+        content.add_widget(Label(text="Carbs: " + str(self.totalCarbs)))
+        content.add_widget(Label(text="Proteins: " + str(self.totalProteins)))
+        content.add_widget(Label(text="Kcal: " + str(self.totalKcal)))
+        popup = Popup(title="Total", content=content, size_hint=(None, None), size=(400, 400))
+        popup.open()
 
-    def create_ui(self):
-        self.retrieve_values()
-        self.root = tk.Tk()
-        self.root.title("Keto Calc by devSeh")
+        
+    
+class TrackerApp(App):
+    def build(self):
+        self.tracker = Tracker()
+        self.tracker.retrieve_values()
+        grid = GridLayout(cols=2)
+        self.kcal_label = Label(text='Enter calories:')
+        self.kcal_entry = TextInput(multiline=False)
+        self.carbs_label = Label(text='Enter carbs:')
+        self.carbs_entry = TextInput(multiline=False)
+        self.proteins_label = Label(text='Enter proteins:')
+        self.proteins_entry = TextInput(multiline=False)
+        self.log_button = Button(text='Log', on_press=lambda x: self.tracker.log_intake(self))
+        self.totals_button = Button(text="Show totals", on_press=self.tracker.show_totals)
+        self.reset_button = Button(text='Reset Totals', on_press=self.tracker.reset_values)
 
-        self.kcal_label = tk.Label(self.root, text="Enter calories:")
-        self.kcal_label.grid(row=0, column=0)
-        self.kcal_entry = tk.Entry(self.root)
-        self.kcal_entry.grid(row=0, column=1)
 
-        self.carbs_label = tk.Label(self.root, text="Enter carbs:")
-        self.carbs_label.grid(row=1, column=0)
-        self.carbs_entry = tk.Entry(self.root)
-        self.carbs_entry.grid(row=1, column=1)
+        grid.add_widget(self.kcal_label)
+        grid.add_widget(self.kcal_entry)
+        grid.add_widget(self.carbs_label)
+        grid.add_widget(self.carbs_entry)
+        grid.add_widget(self.proteins_label)
+        grid.add_widget(self.proteins_entry)
+        grid.add_widget(self.log_button)
+        grid.add_widget(self.totals_button)
+        grid.add_widget(self.reset_button)
 
-        self.proteins_label = tk.Label(self.root, text="Enter proteins:")
-        self.proteins_label.grid(row=2, column=0)
-        self.proteins_entry = tk.Entry(self.root)
-        self.proteins_entry.grid(row=2, column=1)
+        return grid
+    def on_start(self):
+        self.tracker.retrieve_values()
 
-        self.log_button = tk.Button(self.root, text="Log", command=self.log_intake)
-        self.log_button.grid(row=3, column=0)
+    def on_stop(self):
+        self.tracker.conn.close()
+    
 
-        self.totals_button = tk.Button(self.root, text="Show Totals", command=self.show_totals)
-        self.totals_button.grid(row=3, column=1)
-
-        self.undo_button = tk.Button(self.root, text="Undo Last Log", command=self.undo_last_log)
-        self.undo_button.grid(row=4, column=0)
-
-        self.reset_button = tk.Button(self.root, text="Reset Totals", command=self.reset_values)
-        self.reset_button.grid(row=4, column=1)
-
-        self.root.mainloop()
-
-tracker = Tracker()
-tracker.create_ui()
+TrackerApp().run()
